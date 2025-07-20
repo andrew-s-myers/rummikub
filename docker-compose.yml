@@ -1,0 +1,96 @@
+services:
+  back-end:
+    build: ./back-end
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./back-end:/var/www/html
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - DB_CONNECTION=sqlite
+      - DB_DATABASE=/var/www/html/database/database.sqlite
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - app-network
+    # depends_on:
+    #   - redis
+
+  front-end-web:
+    build: ./front-end-web
+    ports:
+      - "5173:5173"     # Vite dev server
+    volumes:
+      - ./front-end-web:/app
+      - /app/node_modules  # Prevent overwriting node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api
+    command: npm run dev -- --host
+    networks:
+      - app-network
+    depends_on:
+      - back-end
+
+  vitest:
+    build: 
+      context: ./front-end-web
+      dockerfile: Dockerfile
+    working_dir: /app
+    volumes:
+      - ./front-end-web:/app
+      - /app/node_modules  # Prevent overwriting node_modules
+    ports:
+      - "51999:51999"
+    command: npx vitest --ui --watch --api.port=51999 --config ./vitest.config.ts
+    stdin_open: true # equivalent to docker run -i
+    tty: true # equivalent to docker run -t
+    depends_on:
+      - front-end-web
+
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: playwright.Dockerfile
+    volumes:
+      - ./playwright:/app/playwright
+      - ./playwright.config.ts:/app/playwright.config.ts
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+    environment:
+      - CI=true
+      - PLAYWRIGHT_HTML_REPORT=/app/playwright/html-report
+      - FRONTEND_BASE_URL=http://front-end-web:5173
+    networks:
+      - app-network
+    depends_on:
+      - back-end
+      - front-end-web
+    profiles:
+      - e2e  # Only start when explicitly requested
+
+  # redis:
+  #   image: redis:alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+
+  # fastapi:
+  #   build: ./fastapi-ms
+  #   ports:
+  #     - "8001:8001"
+  #   volumes:
+  #     - ./fastapi-ms:/app
+  #   depends_on:
+  #     - redis
+
+networks:
+  app-network:
+    driver: bridge
+
+# volumes:
+#   redis_data:
